@@ -2,6 +2,8 @@ import re
 import datetime
 import sys
 import collections
+import os
+import pickle
 
 now = datetime.datetime.now()
 year = now.year
@@ -34,10 +36,18 @@ class Container:
                             ('min_gain', 0), ('max_gain', 10000000000),
                             ('min_loss', 0), ('max_loss', -10000000000))}
         for event in self:
+            for k,v in filters.items():
+                atr = getattr(event, k)
+                if atr == '':
+                    continue
+                if atr not in v:
+                    success = False
+                    break
+            else:
+                success = True
             if (ranges['min_date'] <= event.datetime <= ranges['max_date']
             ) and (ranges['min_gain'] <= event.gain_value <= ranges['max_gain']
-            ) and (ranges['max_loss'] <= event.loss_value <= ranges['min_loss']) and all(
-                v in getattr(event, k) for k,v in filters.items()):
+            ) and (ranges['max_loss'] <= event.loss_value <= ranges['min_loss']) and success:
                 yield event
                 
     def average_value_per_event(self, loss=False, **filters):
@@ -71,23 +81,29 @@ class Container:
                     item.datetime < start_date + datetime.timedelta(1)):
                 bucket.append(item)
             else:
-                yield bucket
+                yield start_date, bucket
                 bucket = []
                 start_date = item.datetime
                 m,d = item.datetime.month, item.datetime.day
                 bucket.append(item)
         if bucket:
-            yield bucket
+            yield start_date, bucket
     
     def totals_by_day(self, **filters):
-        for bucket in self.group_by_day(**filters):
+        for d, bucket in self.group_by_day(**filters):
             items = {}
             for item in bucket:
                 items[item.gain_item] = items.get(item.gain_item, 0) + item.gain_value
                 items[item.loss_item] = items.get(item.loss_item, 0) + item.loss_value
             if '' in items:
                 items.pop('')
-            yield items
+            yield d, items
+    
+    def cumulative_totals(self, **filters):
+        count = collections.Counter()
+        for d, bucket in self.totals_by_day(**filters):
+            count.update(bucket)
+            yield d, count
     
     def counter(self, **filters):
         return collections.Counter(val for item in self.get_loot(**filters)
@@ -98,6 +114,19 @@ class Container:
             return counter.most_common()[-1*least]
         return self.counter(**filters).most_common()[-1*least]
     
+    def dabo(self, **filters):
+        filters['gain_item'] = {'Gold-Pressed Latinum'}
+        filters['loss_item'] = {'Gold-Pressed Latinum', 'Energy Credits'}
+        filters['interaction'] = {"didn't win any", 'placed a bet of', 'won'}
+        gained = []
+        lost = []
+        for item in self.get_loot(**filters):
+            if item.gain_item:
+                gained.append(item)
+            else:
+                lost.append(item)
+        return zip(gained, lost)
+    
     def __str__(self):
         return '\n'.join(str(item) for item in self)
     
@@ -105,16 +134,21 @@ class Container:
         return str(self)
 
 class Loot:
-    def __init__(self, d, t, interaction, winner, quantity, item):
-        if d:
-            month, day = map(int, d.strip('[] ').split('/'))
+    def __init__(self, d, t, interaction, winner, quantity, item, cp=False):
+        if cp:
+            if d:
+                month, day = map(int, d.strip('[] ').split('/'))
+            else:
+                month, day = 1,1
+            if t:
+                hour, minute = map(int, t.strip('[] ').split(':'))
+            else:
+                hour, minute = 0, 0
+            self.datetime = datetime.datetime(year=year, month=month, day=day, hour=hour, minute=minute)
         else:
-            month, day = 1,1
-        if t:
-            hour, minute = map(int, t.strip('[] ').split(':'))
-        else:
-            hour, minute = 0, 0
-        self.datetime = datetime.datetime(year=year, month=month, day=day, hour=hour, minute=minute)
+            self.datetime = datetime.datetime.strptime(d+t, '%Y%m%d%H%M%S')
+            #self.datetime = datetime.datetime(year=int(d[:4]), month=int(d[4:6]),
+             #   day=int(d[6:]), hour=int(t[:2]), minute=int(t[2:4]), second=int(t[4:]))
         
         self.winner = winner
         
@@ -197,49 +231,85 @@ s = '''[3/19 12:41] [System] [ItemReceived] Items acquired: Astrometric Probes x
 [5/12 2:32] [System] [Default] You didn't win any Gold-Pressed Latinum.'''
 #with open(sys.argv[1]) as f:
     #pass
+  #  [516664784,20160515T145944,0,NumericConversionSuccess@,@,,,System]You refined 626 Dilithium.
+
+cp = (r'^(?:\[(\d+/\d+)? ?(\d+:\d+)?\] )?(?:\[[^]]+\] )?'
+      r'(?:\[(?:NumericReceived|ItemReceived|NumericLost|GameplayAnnounce|Default)\] )?'
+      )
+
+log = r'^\[\d+,(\d+)T(\d+),0,[^@]+@,@,,,System\]'
+
+expression = (r"(?:You (didn't win any|spent|discarded|lost|refined"
+      r"|received|sold|placed a bet of|won)|Items? acquired:|(.*) "
+      r'(?:has acquired an?|hat einen))'
+      r' ([0-9,]+ )?(.*)'
+   )
+
+if __name__ == '__main__':
+    def get_logs(location):
+        for filename in sorted(os.listdir(location)):
+            if filename < 'Chat_':
+                continue
+            if filename.startswith('Chat_'):
+                with open(os.path.join(location, filename)) as f:
+                    yield from f
+            else:
+                break
+                
+    if '*cp' in sys.argv:
+        pasted = True
+        expression = cp+expression
+        logs = s.split('\n')
+    else:
+        pasted = False
+        expression = log+expression
+        logs = get_logs(r'C:\Program Files (x86)\Perfect World Entertainment\Star Trek Online_en_20141221115946\Star Trek Online\Live\logs\GameClient')
+    container = Container()
+    for loot in (Loot(cp=pasted, *match.groups()) for match in (re.match(expression, line) for line in logs) if match):
+        container.add(loot)
+        
+    '''for match in container.get_loot(gain_item='Energy Credits', min_date=datetime.datetime(2016,4,1)):
+        print(match)
     
-expression = (r'^(?:\[(\d+/\d+)? ?(\d+:\d+)?\] )?(?:\[[^]]+\] )?' +
-              r'(?:\[(?:NumericReceived|ItemReceived|NumericLost|GameplayAnnounce|Default)\] )?' +
-              r"(?:You (didn't win any|spent|discarded|lost|refined"
-              r"|received|sold|placed a bet of|won)|Items? acquired:|(.*) "
-              r'(?:has acquired an?|hat einen))' +
-              r' ([0-9,]+ )?(.*)')
+    print(container.average_value_per_event(loss=True, gain_item='Energy Credits', min_date=datetime.datetime(2016,4,1)))'''
 
-container = Container()
-for loot in (Loot(*match.groups()) for match in (re.match(expression, line) for line in s.split('\n')) if match):
-    container.add(loot)
-
-for match in container.get_loot(gain_item='Energy Credits', min_date=datetime.datetime(2016,4,1)):
-    print(match)
-
-print(container.average_value_per_event(loss=True, gain_item='Energy Credits', min_date=datetime.datetime(2016,4,1)))
-
-count = container.counter()
-
-print(count)
-
-print(container.common(counter=count, least=True))
-
-print(container.event_quantity(gain_item='Energy Credits'))
-
-print(container.total_value(gain_item='Energy Credits'))
-
-for bucket in container.group_by_day(min_date=datetime.datetime(2016, 5, 6)):
-    print(bucket)
-
-for day in container.totals_by_day(min_date=datetime.datetime(2016, 5, 6)):
-    print(day)
-
-for bucket in container.group_by_day(calendar=True, min_date=datetime.datetime(2016, 5, 6)):
-    print(bucket)
-
-for day in container.totals_by_day(calendar=True, min_date=datetime.datetime(2016, 5, 6)):
-    print(day)
+    #count = container.counter()
+    #print(len(count))
+    #for obj in count.items():
+    #    print(obj)
+    #    break
+    #print(*count.items(), sep='\n')
+    '''
+    print(container.common(counter=count, least=True))
     
+    print(container.event_quantity(gain_item='Energy Credits'))
+    '''
+    #print(container.total_value(gain_item='Dilithium Ore'))
+    #print(container.total_value(gain_item='Dilithium'))
+    '''
+    for d,i in container.group_by_day(min_date=datetime.datetime(2016, 5, 6)):
+        print(d,i)
+
+    for d,i in container.totals_by_day(min_date=datetime.datetime(2016, 5, 6)):
+        print(d,i)
+
+    for d,i in container.group_by_day(calendar=True, min_date=datetime.datetime(2016, 5, 6)):
+        print(d,i)
+
+    for d,i in container.totals_by_day(calendar=True, min_date=datetime.datetime(2016, 5, 6)):
+        print(d,i)
     
+    with open('loot_save.pkl', 'wb') as output:
+        pickle.dump(container, output)
     
+    for d,i in container.totals_by_day(calendar=True, gain_item='Contraband'):
+        print(datetime.datetime.strftime(d, '%y-%m-%d'), i)
     
+    for d,i in container.cumulative_totals(calendar=True, gain_item='Contraband'):
+        print(datetime.datetime.strftime(d, '%y-%m-%d'), i)'''
     
+    for gain,loss in container.dabo():
+        print('Gambled {} {} to win {} {}.'.format(-loss.loss_value, loss.loss_item, gain.gain_value, gain.gain_item))
     
     
     
