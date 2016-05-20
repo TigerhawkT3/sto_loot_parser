@@ -9,6 +9,44 @@ now = datetime.datetime.now()
 year = now.year
 min_date = datetime.datetime(1, 1, 1)
 
+def container_from_logs(location, cp=False):
+    paste = (r'^(?:\[(\d+/\d+)? ?(\d+:\d+)?\] )?(?:\[[^]]+\] )?'
+          r'(?:\[(?:NumericReceived|ItemReceived|NumericLost|GameplayAnnounce|Default)\] )?'
+          )
+
+    log = r'^\[\d+,(\d+)T(\d+),0,[^@]+@,@,,,System\]'
+
+    expression = (r"(?:You (didn't win any|spent|discarded|lost|refined"
+          r"|received|sold|placed a bet of|won)|Items? acquired:|(.*) "
+          r'(?:has acquired an?|hat einen))'
+          r' ([0-9,]+ )?(.*)'
+       )
+   
+    container = Container()
+    if cp:
+        expression = paste+expression
+    else:
+        expression = log+expression
+    for line in get_logs(location, cp):
+        match = re.match(expression, line)
+        if match:
+            container.add(Loot(cp=cp, *match.groups()))
+    return container
+            
+def get_logs(location, cp=False):
+    if cp:
+        with open(location) as f:
+            yield from f
+    else:
+        for filename in sorted(os.listdir(location)):
+            if filename < 'Chat_':
+                continue
+            if filename.startswith('Chat_'):
+                with open(os.path.join(location, filename)) as f:
+                    yield from f
+            else:
+                break
+    
 class Container:
     def __init__(self):
         self.bag = []
@@ -31,23 +69,29 @@ class Container:
         return iter(self.bag)
     
     def get_loot(self, **filters):
-        ranges = {k:filters.pop(k) if k in filters else v
-                for k,v in (('min_date', min_date), ('max_date', now),
+        extras = {k:filters.pop(k) if k in filters else v
+                for k,v in (('regex', False),
+                            ('min_date', min_date), ('max_date', now),
                             ('min_gain', 0), ('max_gain', 10000000000),
                             ('min_loss', 0), ('max_loss', -10000000000))}
         for event in self:
             for k,v in filters.items():
                 atr = getattr(event, k)
-                if atr == '':
-                    continue
-                if atr not in v:
-                    success = False
-                    break
+                if extras['regex'] and isinstance(atr, str):
+                    if not re.search(v, atr):
+                        success = False
+                        break
+                else:
+                    if atr == '':
+                        continue
+                    if atr not in v:
+                        success = False
+                        break
             else:
                 success = True
-            if (ranges['min_date'] <= event.datetime <= ranges['max_date']
-            ) and (ranges['min_gain'] <= event.gain_value <= ranges['max_gain']
-            ) and (ranges['max_loss'] <= event.loss_value <= ranges['min_loss']) and success:
+            if (extras['min_date'] <= event.datetime <= extras['max_date']
+            ) and (extras['min_gain'] <= event.gain_value <= extras['max_gain']
+            ) and (extras['max_loss'] <= event.loss_value <= extras['min_loss']) and success:
                 yield event
                 
     def average_value_per_event(self, loss=False, **filters):
@@ -69,22 +113,21 @@ class Container:
         return sum(item.loss_value if loss else item.gain_value for item in
                     self.get_loot(**filters))
     
-    def group_by_day(self, calendar=False, **filters):
+    def group_by_day(self, **filters):
         bucket = []
         loot = iter(self.get_loot(**filters))
         item = next(loot)
         bucket.append(item)
         start_date = item.datetime
-        m,d = item.datetime.month, item.datetime.day
+        d = item.datetime.day
         for item in loot:
-            if (m == item.datetime.month and d == item.datetime.day) if calendar else (
-                    item.datetime < start_date + datetime.timedelta(1)):
+            if d == item.datetime.day:
                 bucket.append(item)
             else:
                 yield start_date, bucket
                 bucket = []
                 start_date = item.datetime
-                m,d = item.datetime.month, item.datetime.day
+                d = item.datetime.day
                 bucket.append(item)
         if bucket:
             yield start_date, bucket
@@ -233,40 +276,13 @@ s = '''[3/19 12:41] [System] [ItemReceived] Items acquired: Astrometric Probes x
     #pass
   #  [516664784,20160515T145944,0,NumericConversionSuccess@,@,,,System]You refined 626 Dilithium.
 
-cp = (r'^(?:\[(\d+/\d+)? ?(\d+:\d+)?\] )?(?:\[[^]]+\] )?'
-      r'(?:\[(?:NumericReceived|ItemReceived|NumericLost|GameplayAnnounce|Default)\] )?'
-      )
-
-log = r'^\[\d+,(\d+)T(\d+),0,[^@]+@,@,,,System\]'
-
-expression = (r"(?:You (didn't win any|spent|discarded|lost|refined"
-      r"|received|sold|placed a bet of|won)|Items? acquired:|(.*) "
-      r'(?:has acquired an?|hat einen))'
-      r' ([0-9,]+ )?(.*)'
-   )
 
 if __name__ == '__main__':
-    def get_logs(location):
-        for filename in sorted(os.listdir(location)):
-            if filename < 'Chat_':
-                continue
-            if filename.startswith('Chat_'):
-                with open(os.path.join(location, filename)) as f:
-                    yield from f
-            else:
-                break
                 
-    if '*cp' in sys.argv:
-        pasted = True
-        expression = cp+expression
-        logs = s.split('\n')
-    else:
-        pasted = False
-        expression = log+expression
-        logs = get_logs(r'C:\Program Files (x86)\Perfect World Entertainment\Star Trek Online_en_20141221115946\Star Trek Online\Live\logs\GameClient')
-    container = Container()
-    for loot in (Loot(cp=pasted, *match.groups()) for match in (re.match(expression, line) for line in logs) if match):
-        container.add(loot)
+    pasted = '*cp' in sys.argv
+    location = sys.argv[1]
+    #location = r'C:\Program Files (x86)\Perfect World Entertainment\Star Trek Online_en_20141221115946\Star Trek Online\Live\logs\GameClient'
+    container = container_from_logs(location=location, cp=pasted)
         
     '''for match in container.get_loot(gain_item='Energy Credits', min_date=datetime.datetime(2016,4,1)):
         print(match)
@@ -293,23 +309,23 @@ if __name__ == '__main__':
     for d,i in container.totals_by_day(min_date=datetime.datetime(2016, 5, 6)):
         print(d,i)
 
-    for d,i in container.group_by_day(calendar=True, min_date=datetime.datetime(2016, 5, 6)):
+    for d,i in container.group_by_day(min_date=datetime.datetime(2016, 5, 6)):
         print(d,i)
 
-    for d,i in container.totals_by_day(calendar=True, min_date=datetime.datetime(2016, 5, 6)):
+    for d,i in container.totals_by_day(min_date=datetime.datetime(2016, 5, 6)):
         print(d,i)
     
     with open('loot_save.pkl', 'wb') as output:
         pickle.dump(container, output)
-    
-    for d,i in container.totals_by_day(calendar=True, gain_item='Contraband'):
+    '''
+    for d,i in container.totals_by_day(gain_item='Contraband'):
         print(datetime.datetime.strftime(d, '%y-%m-%d'), i)
     
-    for d,i in container.cumulative_totals(calendar=True, gain_item='Contraband'):
-        print(datetime.datetime.strftime(d, '%y-%m-%d'), i)'''
+    '''for d,i in container.cumulative_totals(gain_item='Contraband'):
+        print(datetime.datetime.strftime(d, '%y-%m-%d'), i)
     
     for gain,loss in container.dabo():
-        print('Gambled {} {} to win {} {}.'.format(-loss.loss_value, loss.loss_item, gain.gain_value, gain.gain_item))
+        print('Gambled {} {} to win {} {}.'.format(-loss.loss_value, loss.loss_item, gain.gain_value, gain.gain_item))'''
     
     
     
