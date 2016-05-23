@@ -82,9 +82,7 @@ class Container:
                         success = False
                         break
                 else:
-                    if atr == '':
-                        continue
-                    if atr not in v:
+                    if atr != v and (atr == '' or atr not in v):
                         success = False
                         break
             else:
