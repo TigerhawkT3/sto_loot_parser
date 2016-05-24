@@ -92,6 +92,11 @@ class Container:
             ) and (extras['max_loss'] <= event.loss_value <= extras['min_loss']) and success:
                 yield event
                 
+    def get_winners(self, **filters):
+        for item in self.get_loot(**filters):
+            if item.winner:
+                yield item
+    
     def average_value_per_event(self, loss=False, **filters):
         total = 0
         length = 0
@@ -132,19 +137,29 @@ class Container:
     
     def totals_by_day(self, **filters):
         for d, bucket in self.group_by_day(**filters):
-            items = {}
+            gains = {}
+            losses = {}
             for item in bucket:
-                items[item.gain_item] = items.get(item.gain_item, 0) + item.gain_value
-                items[item.loss_item] = items.get(item.loss_item, 0) + item.loss_value
-            if '' in items:
-                items.pop('')
-            yield d, items
+                gains[item.gain_item] = gains.get(item.gain_item, 0) + item.gain_value
+                losses[item.loss_item] = losses.get(item.loss_item, 0) + item.loss_value
+            if '' in gains:
+                gains.pop('')
+            if '' in losses:
+                losses.pop('')
+            yield d, gains, losses
     
     def cumulative_totals(self, **filters):
         count = collections.Counter()
-        for d, bucket in self.totals_by_day(**filters):
-            count.update(bucket)
+        for d, gains, losses in self.totals_by_day(**filters):
+            count.update(gains)
+            count.update(losses)
             yield d, count
+    
+    def average_totals(self, **filters):
+        length = 0
+        for d, count in self.cumulative_totals(**filters):
+            length += 1
+        return {k:v//length for k,v in count.items()}
     
     def counter(self, **filters):
         return collections.Counter(val for item in self.get_loot(**filters)
@@ -304,20 +319,20 @@ if __name__ == '__main__':
     for d,i in container.group_by_day(min_date=datetime.datetime(2016, 5, 6)):
         print(d,i)
 
-    for d,i in container.totals_by_day(min_date=datetime.datetime(2016, 5, 6)):
-        print(d,i)
+    for d,g,l in container.totals_by_day(min_date=datetime.datetime(2016, 5, 6)):
+        print(d,g,l)
 
     for d,i in container.group_by_day(min_date=datetime.datetime(2016, 5, 6)):
         print(d,i)
 
-    for d,i in container.totals_by_day(min_date=datetime.datetime(2016, 5, 6)):
-        print(d,i)
+    for d,g,l in container.totals_by_day(min_date=datetime.datetime(2016, 5, 6)):
+        print(d,g,l)
     
     with open('loot_save.pkl', 'wb') as output:
         pickle.dump(container, output)
     '''
-    for d,i in container.totals_by_day(gain_item='Contraband'):
-        print(datetime.datetime.strftime(d, '%y-%m-%d'), i)
+    for d,g,l in container.totals_by_day(gain_item='Contraband'):
+        print(datetime.datetime.strftime(d, '%y-%m-%d'), g,l)
     
     '''for d,i in container.cumulative_totals(gain_item='Contraband'):
         print(datetime.datetime.strftime(d, '%y-%m-%d'), i)

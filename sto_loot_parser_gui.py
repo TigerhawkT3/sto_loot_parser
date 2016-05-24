@@ -15,8 +15,14 @@ class STOLootParser:
         self.populate_button = tk.Button(parent, text='Populate', command=self.populate)
         self.populate_button.grid(row=current_row, column=2)
         current_row += 1
-        self.totals_by_day_button = tk.Button(parent, text='Totals by day', command=self.totals_by_day)
+        self.totals_by_day_button = tk.Button(parent, text='Totals by day', command=self.gains_by_day)
         self.totals_by_day_button.grid(row=current_row, column=0)
+        self.dabo_button = tk.Button(parent, text='Dabo wins/losses', command=self.dabo)
+        self.dabo_button.grid(row=current_row, column=1)
+        self.average_button = tk.Button(parent, text='Avg per day', command=self.average_per_day)
+        self.average_button.grid(row=current_row, column=2)
+        self.winners_button = tk.Button(parent, text='Lockbox wins', command=self.get_winners)
+        self.winners_button.grid(row=current_row, column=3)
         current_row += 1
         self.filters = [(tk.Entry(parent), tk.Entry(parent)) for i in range(12)]
         for lbl,val in self.filters:
@@ -29,17 +35,48 @@ class STOLootParser:
     
     def get_filters(self):
         temp = {k.get():v.get() for k,v in self.filters}
-        if 'min_date' in temp:
-            temp['min_date'] = datetime.datetime(*map(int, temp['min_date'].split()))
-        if 'max_date' in temp:
-            temp['max_date'] = datetime.datetime(*map(int, temp['max_date'].split()))
+        for var in ('min_date', 'max_date'):
+            if var in temp:
+                temp[var] = datetime.datetime(*map(int, temp[var].split()))
+        if 'regex' not in temp:
+            for var in ('gain_item', 'loss_item'):
+                if var in temp and '|' in temp[var]:
+                    temp[var] = {item for item in temp[var].split('|') if item}
+        for var in ('min_gain', 'max_gain', 'min_loss', 'max_loss'):
+            if var in temp:
+                temp[var] = int(temp[var])
         if '' in temp:
             temp.pop('')
+            
         return temp
     
-    def totals_by_day(self):
-        for d,i in self.container.totals_by_day(**self.get_filters()):
-            print(datetime.datetime.strftime(d, '%y-%m-%d'), i)
+    def get_winners(self):
+        for item in self.container.get_winners(**self.get_filters()):
+            print(datetime.datetime.strftime(item.datetime, '%y-%m-%d %H:%M:%S'), end='\t')
+            self.unicode_printer(item.gain_item, '\t')
+            self.unicode_printer(item.winner, '\n')
+            
+    def unicode_printer(self, s, end):
+        try:
+            print(s, end=end)
+        except UnicodeEncodeError:
+                for c in s:
+                    try:
+                        print(c, end='')
+                    except UnicodeEncodeError:
+                        print('?', end='')
+                print(end, end='', flush=True)
+        
+    def gains_by_day(self):
+        for d,g,l in self.container.totals_by_day(**self.get_filters()):
+            print(datetime.datetime.strftime(d, '%y-%m-%d'), g)
+    
+    def dabo(self):
+        for item in self.container.dabo(**self.get_filters()):
+            print(*item)
+    
+    def average_per_day(self):
+        print(self.container.average_totals(**self.get_filters()))
             
 
 root = tk.Tk()
