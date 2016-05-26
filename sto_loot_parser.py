@@ -70,23 +70,33 @@ class Container:
     
     def get_loot(self, **filters):
         extras = {k:filters.pop(k) if k in filters else v
-                for k,v in (('regex', False),
+                for k,v in (('item', ''),
+                            ('regex', False),
                             ('min_date', min_date), ('max_date', now),
                             ('min_gain', 0), ('max_gain', 10000000000),
                             ('min_loss', 0), ('max_loss', -10000000000))}
         for event in self:
             for k,v in filters.items():
                 atr = getattr(event, k)
-                if extras['regex'] and isinstance(atr, str):
-                    if not re.search(v, atr):
+                if extras['regex']:
+                    if isinstance(atr, str) and not re.search(v, atr):
                         success = False
                         break
-                else:
-                    if atr != v and (atr == '' or atr not in v):
+                elif atr != v and (atr == '' or atr not in v):
                         success = False
                         break
             else:
                 success = True
+            if extras['item']:
+                if extras['regex']:
+                    if (not re.search(extras['item'], event.gain_item) and
+                    not re.search(extras['item'], event.loss_item)):
+                        success = False
+                elif ((event.gain_item not in extras['item'] and 
+                      event.loss_item not in extras['item']) or
+                       (not event.gain_item and event.loss_item not in extras['item']) or
+                       (not event.loss_item and event.gain_item not in extras['item'])):
+                    success = False
             if (extras['min_date'] <= event.datetime <= extras['max_date']
             ) and (extras['min_gain'] <= event.gain_value <= extras['max_gain']
             ) and (extras['max_loss'] <= event.loss_value <= extras['min_loss']) and success:
@@ -135,13 +145,14 @@ class Container:
         if bucket:
             yield start_date, bucket
     
-    def totals_by_day(self, **filters):
+    def totals_by_day(self, sales_loss=False, **filters):
         for d, bucket in self.group_by_day(**filters):
             gains = {}
             losses = {}
             for item in bucket:
                 gains[item.gain_item] = gains.get(item.gain_item, 0) + item.gain_value
-                losses[item.loss_item] = losses.get(item.loss_item, 0) + item.loss_value
+                if not item.gain_item or sales_loss:
+                    losses[item.loss_item] = losses.get(item.loss_item, 0) + item.loss_value
             if '' in gains:
                 gains.pop('')
             if '' in losses:
