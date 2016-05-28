@@ -182,8 +182,6 @@ class Container:
         return self.counter(**filters).most_common()[-1*least]
     
     def dabo(self, **filters):
-        filters['gain_item'] = {'Gold-Pressed Latinum'}
-        filters['loss_item'] = {'Gold-Pressed Latinum', 'Energy Credits'}
         filters['interaction'] = {"didn't win any", 'placed a bet of', 'won'}
         gained = []
         lost = []
@@ -192,7 +190,7 @@ class Container:
                 gained.append(item)
             else:
                 lost.append(item)
-        return zip(gained, lost)
+        return zip(lost, gained)
     
     def __str__(self):
         return '\n'.join(str(item) for item in self)
@@ -268,91 +266,40 @@ class Loot:
     def __repr__(self):
         return str(self)
 
-s = '''[3/19 12:41] [System] [ItemReceived] Items acquired: Astrometric Probes x 10
-[3/19 12:41] [System] [ItemReceived] Items acquired: Astrometric Probes x 10
-[12:41] [System] [NumericReceived] You received 1,470 Energy Credits
-[12:41] [System] [ItemReceived] Item acquired: Shield Array Mk XII [Pla]
-[5/5] [System] [ItemReceived] Item acquired: Z-Particle
-[5/5 6:22] [System] Item acquired: Beta-Tachyon Particle
-[12:40] [System] [NumericLost] You lost 1 Pass Token
-[5/6 12:31] [System] [GameplayAnnounce] Sven@maxbuy2 hat einen Na'kuhl-Tadaari-Raider [K6] erhalten!
-[5/6 12:32] [System] [GameplayAnnounce] R. Brent@baldor6 hat einen Herold-Vonph-Dreadnought-Träger [K6] erhalten!
-[5/6 12:33] [System] [GameplayAnnounce] Gareth@l0rdgareth has acquired a Tholian Tarantula Dreadnought Cruiser [T6]!
-[5/6 12:46] [System] [GameplayAnnounce] Seven@lynnnick01 has acquired a Na'kuhl Tadaari Raider [T6]!
-[5/7 2:18] [System] [NumericReceived] You sold Console - Engineering - EPS Flow Regulator for 2,763 Energy Credits
-[5/7 2:18] [System] [NumericReceived] You sold Industrial Replicators for 100,000 Energy Credits
-[5/8 3:10] [Minigame] Gloria placed a bet of 100 Energy Credits.
-[5/8 3:10] [System] [Default] You placed a bet of 100 Energy Credits.
-[5/8 3:10] [Minigame] Gloria placed a bet of 100 Energy Credits.
-[5/8 3:10] [System] [Default] You placed a bet of 100 Energy Credits.
-[5/8 3:10] [Minigame] Gloria placed a bet of 100 Energy Credits.
-[5/8 3:10] [System] [Default] You placed a bet of 100 Energy Credits.
-[5/8 3:10] [Minigame] Rudy placed a bet of 100 Energy Credits.
-[5/8 3:10] [Minigame] Rudy placed a bet of 100 Energy Credits.
-[5/8 3:10] [Minigame] Rudy placed a bet of 100 Energy Credits.
-[5/8 3:11] [System] [Default] You won 150 Gold-Pressed Latinum.
-[5/8 3:11] [System] [Default] You won 150 Gold-Pressed Latinum.
-[5/8 3:11] [System] [Default] You won 10 Gold-Pressed Latinum.
-[5/12 2:32] [Minigame] Gloria placed a bet of 100 Energy Credits.
-[5/12 2:32] [System] [Default] You placed a bet of 100 Energy Credits.
-[5/12 2:32] [System] [Default] You didn't win any Gold-Pressed Latinum.'''
-#with open(sys.argv[1]) as f:
-    #pass
-  #  [516664784,20160515T145944,0,NumericConversionSuccess@,@,,,System]You refined 626 Dilithium.
-
-
 if __name__ == '__main__':
                 
     pasted = '*cp' in sys.argv
-    location = sys.argv[1]
-    #location = r'C:\Program Files (x86)\Perfect World Entertainment\Star Trek Online_en_20141221115946\Star Trek Online\Live\logs\GameClient'
-    container = container_from_logs(location=location, cp=pasted)
-        
-    '''for match in container.get_loot(gain_item='Energy Credits', min_date=datetime.datetime(2016,4,1)):
-        print(match)
+    container = container_from_logs(location=sys.argv[1], cp=pasted)
+    item_filter = {'Dilithium', 'Dilithium Ore', 'Refined Dilithium',
+               'Contraband', 'Energy Credits', 'Gold-Pressed Latinum'}
     
-    print(container.average_value_per_event(loss=True, gain_item='Energy Credits', min_date=datetime.datetime(2016,4,1)))'''
-
-    #count = container.counter()
-    #print(len(count))
-    #for obj in count.items():
-    #    print(obj)
-    #    break
-    #print(*count.items(), sep='\n')
-    '''
-    print(container.common(counter=count, least=True))
+    print('Daily averages:')
+    print('Item', 'Average value per day', sep='\t')
+    for item in container.average_totals(item=item_filter).items():
+        print(*item, sep='\t')
     
-    print(container.event_quantity(gain_item='Energy Credits'))
-    '''
-    #print(container.total_value(gain_item='Dilithium Ore'))
-    #print(container.total_value(gain_item='Dilithium'))
-    '''
-    for d,i in container.group_by_day(min_date=datetime.datetime(2016, 5, 6)):
-        print(d,i)
-
-    for d,g,l in container.totals_by_day(min_date=datetime.datetime(2016, 5, 6)):
-        print(d,g,l)
-
-    for d,i in container.group_by_day(min_date=datetime.datetime(2016, 5, 6)):
-        print(d,i)
-
-    for d,g,l in container.totals_by_day(min_date=datetime.datetime(2016, 5, 6)):
-        print(d,g,l)
+    print('\nTotals per day:')
+    headers = set()
+    results = []
+    for d,g,l in container.totals_by_day(item=item_filter):
+        result = collections.Counter(g)
+        result.update(l)
+        results.append((datetime.datetime.strftime(d, '%Y-%m-%d'), result))
+        headers |= set(result)
+    headers = sorted(headers)
+    print('Date', *headers, sep='\t')
+    for d,c in results:
+        print(d, *map(c.get, headers), sep='\t')
     
-    with open('loot_save.pkl', 'wb') as output:
-        pickle.dump(container, output)
-    '''
-    for d,g,l in container.totals_by_day(gain_item='Contraband'):
-        print(datetime.datetime.strftime(d, '%y-%m-%d'), g,l)
+    print('\nDabo gambling results:')
+    print('Bet', 'Won', sep='\t')
+    for l,g in container.dabo():
+        print(l.loss_value, g.gain_value, sep='\t')
     
-    '''for d,i in container.cumulative_totals(gain_item='Contraband'):
-        print(datetime.datetime.strftime(d, '%y-%m-%d'), i)
-    
-    for gain,loss in container.dabo():
-        print('Gambled {} {} to win {} {}.'.format(-loss.loss_value, loss.loss_item, gain.gain_value, gain.gain_item))'''
-    
-    
-    
-    
-    
-
+    print('\nLockbox ship winners:')
+    print('Date', 'Winner', 'Item', sep='\t')
+    for item in container.get_winners():
+        try:
+            print(item.datetime, item.winner, item.gain_item, sep='\t')
+        except UnicodeEncodeError:
+            print('Character not available. Try redirecting to a file.')
