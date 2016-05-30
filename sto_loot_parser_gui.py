@@ -1,53 +1,66 @@
 import tkinter as tk
 from tkinter import filedialog
-from tkinter import messagebox
-import sto_loot_parser as stolp
+import sto_loot_parser13 as stolp
 import os
 import datetime
 import collections
 import sys
+import pickle
 
 class STOLootParser:
     def __init__(self, parent):
         self.parent = parent
         if sys.argv[1:2]:
-            self.log_directory = sys.argv[1]
+            self.location = sys.argv[1]
         current_row = 0
-        self.pasted = tk.IntVar()
-        self.pasted_box = tk.Checkbutton(parent, text='Pasted', variable=self.pasted)
-        self.pasted_box.grid(row=current_row, column=0, columnspan=2)
-        current_row += 1
         
         self.menubar = tk.Menu(parent)
         
         self.filemenu = tk.Menu(self.menubar, tearoff=0)
-        self.filemenu.add_command(label='Choose log directory...', command=self.get_log_directory)
+        self.filemenu.add_command(label='Choose first log file...', command=self.ask_location)
         self.filemenu.add_command(label='Populate', command=self.populate)
+        self.filemenu.add_command(label='Save...', command=self.save)
+        self.filemenu.add_command(label='Load...', command=self.load)
         self.menubar.add_cascade(label='File', menu=self.filemenu)
         
         self.exportmenu = tk.Menu(self.menubar, tearoff=0)
-        self.exportmenu.add_command(label='Average per day...', command=self.average_per_day)
-        self.exportmenu.add_command(label='Totals by day...', command=self.totals_by_day)
-        self.exportmenu.add_command(label='Cumulative totals by day...', command=self.cumulative_totals)
+        self.exportmenu.add_command(label='Average per day', command=self.average_per_day)
+        self.exportmenu.add_command(label='Totals by day', command=self.totals_by_day)
+        self.exportmenu.add_command(label='Cumulative totals by day', command=self.cumulative_totals)
         self.exportmenu.add_command(label='Lockbox winners', command=self.get_winners)
-        self.exportmenu.add_command(label='Dabo losses/wins...', command=self.dabo)
+        self.exportmenu.add_command(label='Dabo losses/wins', command=self.dabo)
         self.menubar.add_cascade(label='Export', menu=self.exportmenu)
         
         parent.config(menu=self.menubar)
+
+        self.left_label = tk.Label(parent, text='Key')
+        self.left_label.grid(row=current_row, column=0)
+        self.right_label = tk.Label(parent, text='Value')
+        self.right_label.grid(row=current_row, column=1)
+        current_row += 1
 
         self.filters = [(tk.Entry(parent), tk.Entry(parent)) for i in range(12)]
         for lbl,val in self.filters:
             lbl.grid(row=current_row, column=0)
             val.grid(row=current_row, column=1)
             current_row += 1
+        
+        self.container = stolp.Container()
     
-    def get_log_directory(self):
-        self.log_directory = filedialog.askdirectory()
+    def ask_location(self):
+        self.location = filedialog.askopenfilename()
         
     def populate(self):
-        self.container = stolp.container_from_logs(self.log_directory, self.pasted.get())
-        messagebox.showinfo(title='Done', message='Logs populated.')
+        self.container.extend(stolp.container_from_logs(self.location))
     
+    def save(self):
+        with open(filedialog.asksaveasfilename(), 'wb') as output:
+            pickle.dump(self.container, output)
+        
+    def load(self):
+        with open(filedialog.askopenfilename(), 'rb') as f:
+            self.container.extend(pickle.load(f))
+        
     def get_filters(self):
         temp = {k.get():v.get() for k,v in self.filters}
         for var in ('min_date', 'max_date'):
@@ -66,6 +79,8 @@ class STOLootParser:
         return temp
     
     def get_winners(self):
+        print('\nLockbox ship winners:')
+        print('Date', 'Winner', 'Item', sep='\t')
         for item in self.container.get_winners(**self.get_filters()):
             print(item.datetime, end='\t')
             self.unicode_printer(item.gain_item, '\t')
@@ -91,6 +106,7 @@ class STOLootParser:
             results.append((datetime.datetime.strftime(d, '%Y-%m-%d'), result))
             headers |= set(result)
         headers = sorted(headers)
+        print('\nTotals per day:')
         print('Date', *headers, sep='\t')
         for d,c in results:
             print(d, *map(c.get, headers), sep='\t')
@@ -102,15 +118,20 @@ class STOLootParser:
             results.append((datetime.datetime.strftime(d, '%Y-%m-%d'), dict(c)))
             headers |= set(c)
         headers = sorted(headers)
+        print('\nCumulative totals per day:')
         print('Date', *headers, sep='\t')
         for d,c in results:
             print(d, *map(c.get, headers), sep='\t')
         
     def dabo(self):
+        print('\nDabo gambling results:')
+        print('Bet', 'Won', sep='\t')
         for l,g in self.container.dabo(**self.get_filters()):
             print(l.loss_value, g.gain_value, sep='\t')
     
     def average_per_day(self):
+        print('\nDaily averages:')
+        print('Item', 'Average value per day', sep='\t')
         for item in self.container.average_totals(**self.get_filters()).items():
             print(*item, sep='\t')
             

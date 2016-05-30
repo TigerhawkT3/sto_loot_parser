@@ -1,5 +1,6 @@
 import re
 import datetime
+import time
 import sys
 import collections
 import os
@@ -8,6 +9,7 @@ import pickle
 now = datetime.datetime.now()
 year = now.year
 min_date = datetime.datetime(1, 1, 1)
+offset = datetime.timedelta(seconds=time.altzone)
 
 def container_from_logs(location, cp=False):
     paste = (r'^(?:\[(\d+/\d+)? ?(\d+:\d+)?\] )?(?:\[[^]]+\] )?'
@@ -38,14 +40,17 @@ def get_logs(location, cp=False):
         with open(location) as f:
             yield from f
     else:
-        for filename in sorted(os.listdir(location)):
-            if filename < 'Chat_':
-                continue
-            if filename.startswith('Chat_'):
-                with open(os.path.join(location, filename)) as f:
-                    yield from f
-            else:
-                break
+        dirname = os.path.dirname(location)
+        basename = os.path.basename(location)
+        files = [filename for filename in sorted(os.listdir(dirname)) if
+                                                            filename.startswith('Chat_') and
+                                                            filename >= basename]
+        length = len(files)
+        for idx,filename in enumerate(files, start=1):
+            print('Processing {} out of {}...'.format(idx, length), end='\r', file=sys.stderr)
+            with open(os.path.join(dirname, filename)) as f:
+                yield from f
+        print('\nDone.', file=sys.stderr)
     
 class Container:
     def __init__(self):
@@ -126,27 +131,31 @@ class Container:
         return sum(item.loss_value if loss else item.gain_value for item in
                     self.get_loot(**filters))
     
-    def group_by_day(self, **filters):
+    def group_by_day(self, UTC=False, **filters):
         bucket = []
         loot = iter(self.get_loot(**filters))
         item = next(loot)
         bucket.append(item)
         start_date = item.datetime
-        d = item.datetime.day
+        if UTC:
+            start_date += offset
+        d = start_date.day
         for item in loot:
-            if d == item.datetime.day:
+            if d == ((item.datetime+offset) if UTC else item.datetime).day:
                 bucket.append(item)
             else:
                 yield start_date, bucket
                 bucket = []
                 start_date = item.datetime
-                d = item.datetime.day
+                if UTC:
+                    start_date += offset
+                d = start_date.day
                 bucket.append(item)
         if bucket:
             yield start_date, bucket
     
-    def totals_by_day(self, sales_loss=False, **filters):
-        for d, bucket in self.group_by_day(**filters):
+    def totals_by_day(self, sales_loss=False, UTC=False, **filters):
+        for d, bucket in self.group_by_day(UTC=UTC, **filters):
             gains = {}
             losses = {}
             for item in bucket:
@@ -159,18 +168,21 @@ class Container:
                 losses.pop('')
             yield d, gains, losses
     
-    def cumulative_totals(self, **filters):
+    def cumulative_totals(self, UTC=False, **filters):
         count = collections.Counter()
-        for d, gains, losses in self.totals_by_day(**filters):
+        for d, gains, losses in self.totals_by_day(UTC=UTC, **filters):
             count.update(gains)
             count.update(losses)
             yield d, count
     
-    def average_totals(self, **filters):
+    def average_totals(self, UTC=False, **filters):
         length = 0
-        for d, count in self.cumulative_totals(**filters):
+        for d, count in self.cumulative_totals(UTC=UTC, **filters):
             length += 1
-        return {k:v//length for k,v in count.items()}
+        if length:
+            return {k:v//length for k,v in count.items()}
+        else:
+            return {'None':0}
     
     def counter(self, **filters):
         return collections.Counter(val for item in self.get_loot(**filters)
