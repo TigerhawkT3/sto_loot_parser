@@ -6,10 +6,21 @@ import collections
 import os
 import pickle
 
-now = datetime.datetime.now()
+try:
+    import tzlocal
+except ImportError:
+    tzlocal_present = False
+else:
+    tzlocal_present = True
+
+if tzlocal_present:
+    now = tzlocal.get_localzone().localize(datetime.datetime.now())
+    min_date = tzlocal.get_localzone().localize(datetime.datetime(2002, 1, 1))
+else:
+    now = datetime.datetime.now()
+    min_date = datetime.datetime(2002, 1, 1)
 year = now.year
-min_date = datetime.datetime(1, 1, 1)
-offset = datetime.timedelta(seconds=time.altzone)
+
 
 def container_from_logs(location, cp=False):
     paste = (r'^(?:\[(\d+/\d+)? ?(\d+:\d+)?\] )?(?:\[[^]]+\] )?'
@@ -138,17 +149,17 @@ class Container:
         bucket.append(item)
         start_date = item.datetime
         if UTC:
-            start_date += offset
+            start_date -= start_date.utcoffset()
         d = start_date.day
         for item in loot:
-            if d == ((item.datetime+offset) if UTC else item.datetime).day:
+            if d == ((item.datetime-item.datetime.utcoffset()) if UTC else item.datetime).day:
                 bucket.append(item)
             else:
                 yield start_date, bucket
                 bucket = []
                 start_date = item.datetime
                 if UTC:
-                    start_date += offset
+                    start_date -= start_date.utcoffset()
                 d = start_date.day
                 bucket.append(item)
         if bucket:
@@ -221,11 +232,20 @@ class Loot:
                 hour, minute = map(int, t.strip('[] ').split(':'))
             else:
                 hour, minute = 0, 0
-            self.datetime = datetime.datetime(year=year, month=month, day=day, hour=hour, minute=minute)
+            if tzlocal_present:
+                self.datetime = tzlocal.get_localzone().localize(
+                    datetime.datetime(year=year, month=month, day=day, hour=hour, minute=minute))
+            else:
+                self.datetime = datetime.datetime(year=year, month=month, day=day, hour=hour, minute=minute)
         else:
-            self.datetime = datetime.datetime.strptime(d+t, '%Y%m%d%H%M%S')
-            #self.datetime = datetime.datetime(year=int(d[:4]), month=int(d[4:6]),
-             #   day=int(d[6:]), hour=int(t[:2]), minute=int(t[2:4]), second=int(t[4:]))
+            if tzlocal_present:
+                #self.datetime = tzlocal.get_localzone().localize(datetime.datetime.strptime(d+t, '%Y%m%d%H%M%S'))
+                self.datetime = tzlocal.get_localzone().localize(datetime.datetime(year=int(d[:4]), month=int(d[4:6]),
+                    day=int(d[6:]), hour=int(t[:2]), minute=int(t[2:4]), second=int(t[4:])))
+            else:
+                #self.datetime = datetime.datetime.strptime(d+t, '%Y%m%d%H%M%S')
+                self.datetime = datetime.datetime(year=int(d[:4]), month=int(d[4:6]),
+                    day=int(d[6:]), hour=int(t[:2]), minute=int(t[2:4]), second=int(t[4:]))
         
         self.winner = winner
         
