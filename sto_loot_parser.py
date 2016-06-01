@@ -410,7 +410,7 @@ class Loot:
                 self.datetime = datetime.datetime(year=int(d[:4]), month=int(d[4:6]),
                     day=int(d[6:]), hour=int(t[:2]), minute=int(t[2:4]), second=int(t[4:]))
         
-        self.winner = winner
+        self.winner = winner or ''
         
         quantity = quantity or ''
         quantity = (int(quantity.strip().replace(',','') or 0) or
@@ -418,7 +418,7 @@ class Loot:
         
         item = item.split(' x ')[0].rstrip('!.').rsplit(' erhalten', maxsplit=1)[0]
         
-        self.interaction = interaction
+        self.interaction = interaction or ''
         
         if interaction in {'lost', 'placed a bet of', 'discarded', 'spent'}:
             self.gain_item = ''
