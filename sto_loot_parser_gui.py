@@ -90,15 +90,24 @@ class STOLootParser:
         print('\nLockbox ship winners:')
         print('Date', 'Winner', 'Item', sep='\t')
         for item in self.container.get_winners(**self.get_filters()):
-            print(item.datetime, end='\t')
-            self.unicode_printer(item.gain_item, '\t')
-            self.unicode_printer(item.winner, '\n')
+            self.unicode_printer(item.datetime, item.gain_item, item.winner, sep='\t')
             
-    def unicode_printer(self, s, end):
+    def unicode_printer(self, *args, sep=' ', end='\n'):
+        *most, last = args
+        for arg in most:
+            try:
+                print(arg, end=sep)
+            except UnicodeEncodeError:
+                for c in arg:
+                    try:
+                        print(c, end='')
+                    except UnicodeEncodeError:
+                        print('?', end='')
+                print(end=sep, flush=True)
         try:
-            print(s, end=end)
+            print(last, end=end)
         except UnicodeEncodeError:
-            for c in s:
+            for c in last:
                 try:
                     print(c, end='')
                 except UnicodeEncodeError:
@@ -115,9 +124,9 @@ class STOLootParser:
             headers |= set(result)
         headers = sorted(headers)
         print('\nTotals per day:')
-        print('Date', *headers, sep='\t')
+        self.unicode_printer('Date', *headers, sep='\t')
         for d,c in results:
-            print(d, *map(c.get, headers), sep='\t')
+            self.unicode_printer(d, *map(c.get, headers), sep='\t')
     
     def cumulative_totals(self):
         headers = set()
@@ -127,9 +136,9 @@ class STOLootParser:
             headers |= set(c)
         headers = sorted(headers)
         print('\nCumulative totals per day:')
-        print('Date', *headers, sep='\t')
+        self.unicode_printer('Date', *headers, sep='\t')
         for d,c in results:
-            print(d, *map(c.get, headers), sep='\t')
+            self.unicode_printer(d, *map(c.get, headers), sep='\t')
         
     def dabo(self):
         print('\nDabo gambling results:')
@@ -141,7 +150,7 @@ class STOLootParser:
         print('\nDaily averages:')
         print('Item', 'Average value per day', sep='\t')
         for item in self.container.average_totals(**self.get_filters()).items():
-            print(*item, sep='\t')
+            self.unicode_printer(*item, sep='\t')
             
 
 root = tk.Tk()
