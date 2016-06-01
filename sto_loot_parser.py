@@ -13,16 +13,28 @@ except ImportError:
 else:
     tzlocal_present = True
 
-if tzlocal_present:
-    now = tzlocal.get_localzone().localize(datetime.datetime.now())
-    min_date = tzlocal.get_localzone().localize(datetime.datetime(2002, 1, 1))
-else:
-    now = datetime.datetime.now()
-    min_date = datetime.datetime(2002, 1, 1)
+now = datetime.datetime.now()
+min_date = datetime.datetime(2002, 1, 1)
 year = now.year
 
+if tzlocal_present:
+    now = tzlocal.get_localzone().localize(now)
+    min_date = tzlocal.get_localzone().localize(min_date)
 
 def container_from_logs(location, cp=False):
+    '''
+    Parses log files (starting) from the given location and creates
+    a Container object to hold the created Loot objects.
+    Parameters:
+        location (str): the location of a pasted log, or the
+            location of the first chatlog in a series
+        cp (bool): whether the parser should read a single log file
+            with the copy-paste syntax rather than the default behavior
+            of reading every available log file starting from the given
+            one and using the saved-logfile syntax
+    Returns:
+        Container: populated with Loot objects
+    '''
     paste = (r'^(?:\[(\d+/\d+)? ?(\d+:\d+)?\] )?(?:\[[^]]+\] )?'
           r'(?:\[(?:NumericReceived|ItemReceived|NumericLost|GameplayAnnounce|Default)\] )?'
           )
@@ -47,6 +59,18 @@ def container_from_logs(location, cp=False):
     return container
             
 def get_logs(location, cp=False):
+    '''
+    Yields lines of each log being parsed.
+    Parameters:
+        location (str): the location of a pasted log, or the
+            location of the first chatlog in a series
+        cp (bool): whether the parser should read a single log file
+            with the copy-paste syntax rather than the default behavior
+            of reading every available log file starting from the given
+            one and using the saved-logfile syntax
+    Yields:
+        (str): each line of each log being parsed
+    '''
     if cp:
         with open(location) as f:
             yield from f
@@ -64,27 +88,69 @@ def get_logs(location, cp=False):
         print('\nDone.', file=sys.stderr)
     
 class Container:
+    '''
+    A container that holds Loot objects and has analysis methods.
+    Attributes:
+        bag (list): stores all the Loot objects
+    '''
     def __init__(self):
         self.bag = []
     
     def add(self, loot):
+        '''
+        Adds a Loot object to the Container's bag.
+        Parameter:
+            loot (Loot): the Loot object to add to the bag
+        '''
         self.bag.append(loot)
     
     def __add__(self, other):
+        '''
+        Adds two Container objects together.
+        Parameter:
+            other (Container): the Container to add to this one
+        Returns:
+            Container: a Container with this one's bag and the other's bag
+        '''
         temp = Container()
         temp.bag = self.bag + other.bag
         return temp
     
     def extend(self, other):
+        '''
+        Adds another Container's bag onto this one's.
+        Parameter:
+            other (Container): the Container to add to this one
+        '''
         self.bag.extend(other.bag)
     
     def __bool__(self):
+        '''
+        Indicates whether there is anything in the Container's bag.
+        Returns:
+            bool: whether the bag is non-empty
+        '''
         return bool(self.bag)
         
     def __iter__(self):
+        '''
+        Returns an iterator so we can iterate directly over the Container.
+        Returns:
+            iter: an iterator for this Container's bag
+        '''
         return iter(self.bag)
     
     def get_loot(self, **filters):
+        '''
+        Yields all the Loot objects that match the given set of filters.
+        Example:
+            for item in container.get_loot(gain_item='Contraband'):
+                print(item)
+        Parameter:
+            **filters (unpacked dict): the desired filters
+        Yields:
+            Loot: each matching Loot item
+        '''
         extras = {k:filters.pop(k) if k in filters else v
                 for k,v in (('item', ''),
                             ('regex', False),
@@ -119,11 +185,26 @@ class Container:
                 yield event
                 
     def get_winners(self, **filters):
+        '''
+        Yields loot events that were a lockbox win.
+        Parameter:
+            **filters (unpacked dict): the desired filters
+        Yields:
+            Loot: each matching Loot item
+        '''
         for item in self.get_loot(**filters):
             if item.winner:
                 yield item
     
     def average_value_per_event(self, loss=False, **filters):
+        '''
+        Returns the average value out of all matching loot events.
+        Parameters:
+            loss (bool): whether we want the losses instead of the default gains
+            **filters (unpacked dict): the desired filters
+        Returns:
+            number: the average value for these loot events
+        '''
         total = 0
         length = 0
         for item in self.get_loot(**filters):
@@ -135,14 +216,40 @@ class Container:
         return total/length
     
     def event_quantity(self, loss=False, **filters):
+        '''
+        Returns the number of events that match the given filters.
+        Parameters:
+            loss (bool): whether we want the losses instead of the default gains
+            **filters (unpacked dict): the desired filters
+        Returns:
+            int: number of matching loot events for these filters
+        '''
         return sum(1 for item in self.get_loot(**filters) if (
                     item.loss_item and loss) or (item.gain_item and not loss))
     
     def total_value(self, loss=False, **filters):
+        '''
+        Returns the total value of the matching loot events.
+        Parameters:
+            loss (bool): whether we want the losses instead of the default gains
+            **filters (unpacked dict): the desired filters
+        Yields:
+            int: the total value of these loot events
+        '''
         return sum(item.loss_value if loss else item.gain_value for item in
                     self.get_loot(**filters))
     
     def group_by_day(self, UTC=False, **filters):
+        '''
+        Yields buckets of Loot events separated by day.
+        Parameters:
+            UTC (bool): whether to separate buckets by local calendar day
+                or by UTC calendar day
+            **filters (unpacked dict): the desired filters
+        Yields:
+            tuple (datetime, list): The start date for this bucket and
+                the list containing this bucket's Loot objects
+        '''
         bucket = []
         loot = iter(self.get_loot(**filters))
         item = next(loot)
@@ -166,6 +273,18 @@ class Container:
             yield start_date, bucket
     
     def totals_by_day(self, sales_loss=False, UTC=False, **filters):
+        '''
+        Adds up all the events in each daily bucket from group_by_day.
+        Parameters:
+            sales_loss (bool): whether to show the sold items in the results
+            UTC (bool): whether to separate buckets by local calendar day
+                or by UTC calendar day
+            **filters (unpacked dict): the desired filters
+        Yields:
+            tuple (datetime, dict, dict): The start date for this bucket,
+                a dictionary of gain loot events and their values, and
+                a dictionary of loss loot events and their values
+        '''
         for d, bucket in self.group_by_day(UTC=UTC, **filters):
             gains = {}
             losses = {}
@@ -179,14 +298,35 @@ class Container:
                 losses.pop('')
             yield d, gains, losses
     
-    def cumulative_totals(self, UTC=False, **filters):
+    def cumulative_totals(self, sales_loss=False, UTC=False, **filters):
+        '''
+        Yields the cumulative totals for each successive daily bucket from totals_by_day.
+        Parameters:
+            sales_loss (bool): whether to show the sold items in the results
+            UTC (bool): whether to separate buckets by local calendar day
+                or by UTC calendar day
+            **filters (unpacked dict): the desired filters
+        Yields:
+            tuple (datetime, Counter): The start date for this bucket, and
+                a Counter holding the current cumulative total
+        '''
         count = collections.Counter()
         for d, gains, losses in self.totals_by_day(UTC=UTC, **filters):
             count.update(gains)
             count.update(losses)
             yield d, count
     
-    def average_totals(self, UTC=False, **filters):
+    def average_totals(self, sales_loss=False, UTC=False, **filters):
+        '''
+        Returns a dictionary with the average daily value for each matching item.
+        Parameters:
+            sales_loss (bool): whether to show the sold items in the results
+            UTC (bool): whether to separate buckets by local calendar day
+                or by UTC calendar day
+            **filters (unpacked dict): the desired filters
+        Returns:
+            dict: the matching items with their average daily value
+        '''
         length = 0
         for d, count in self.cumulative_totals(UTC=UTC, **filters):
             length += 1
@@ -196,15 +336,38 @@ class Container:
             return {'None':0}
     
     def counter(self, **filters):
+        '''
+        Returns a Counter with the number of times each loot item appeared.
+        Parameter:
+            **filters (unpacked dict): the desired filters
+        Returns:
+            Counter: each item with their number of appearances
+        '''
         return collections.Counter(val for item in self.get_loot(**filters)
                                     for val in (item.loss_item, item.gain_item) if val)
         
     def common(self, least=False, counter=None, **filters):
+        '''
+        Returns the most or least common item, by number of loot events.
+        Parameters:
+            least (bool): get the least common item, rather than the default most
+            counter (Counter): send a Counter object to avoid having to make it again
+            **filters (unpacked dict): the desired filters
+        Returns:
+            str: the most or least common item, by number of loot events
+        '''
         if counter:
             return counter.most_common()[-1*least]
         return self.counter(**filters).most_common()[-1*least]
     
     def dabo(self, **filters):
+        '''
+        Returns a zip object with Dabo gambling losses and gains.
+        Parameter:
+            **filters (unpacked dict): the desired filters
+        Returns:
+            zip: Each loss and its corresponding gain for Dabo gambling
+        '''
         filters['interaction'] = {"didn't win any", 'placed a bet of', 'won'}
         gained = []
         lost = []

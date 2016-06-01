@@ -1,11 +1,17 @@
 import tkinter as tk
 from tkinter import filedialog
-import sto_loot_parser13 as stolp
+import sto_loot_parser as stolp
 import os
 import datetime
 import collections
 import sys
 import pickle
+try:
+    import tzlocal
+except ImportError:
+    tzlocal_present = False
+else:
+    tzlocal_present = True
 
 class STOLootParser:
     def __init__(self, parent):
@@ -66,6 +72,8 @@ class STOLootParser:
         for var in ('min_date', 'max_date'):
             if var in temp:
                 temp[var] = datetime.datetime(*map(int, temp[var].split()))
+                if tzlocal_present:
+                    temp[var] = tzlocal.get_localzone().localize(temp[var])
         if 'regex' not in temp:
             for var in ('gain_item', 'loss_item', 'item', 'winner', 'interaction'):
                 if var in temp and '|' in temp[var]:
