@@ -16,6 +16,7 @@ else:
 class STOLootParser:
     def __init__(self, parent):
         self.parent = parent
+        parent.title('STO Loot Parser')
         if sys.argv[1:2]:
             self.location = sys.argv[1]
         current_row = 0
@@ -60,11 +61,17 @@ class STOLootParser:
         self.container.extend(stolp.container_from_logs(self.location))
     
     def save(self):
-        with open(filedialog.asksaveasfilename(), 'wb') as output:
+        temp = filedialog.asksaveasfilename()
+        if not temp:
+            return
+        with open(temp, 'wb') as output:
             pickle.dump(self.container, output)
         
     def load(self):
-        with open(filedialog.askopenfilename(), 'rb') as f:
+        temp = filedialog.askopenfilename()
+        if not temp:
+            return
+        with open(temp, 'rb') as f:
             self.container.extend(pickle.load(f))
         
     def get_filters(self):
@@ -90,7 +97,7 @@ class STOLootParser:
         print('\nLockbox ship winners:')
         print('Date', 'Winner', 'Item', sep='\t')
         for item in self.container.get_winners(**self.get_filters()):
-            self.unicode_printer(item.datetime, item.gain_item, item.winner, sep='\t')
+            self.unicode_printer(item.datetime, item.winner, item.gain_item, sep='\t')
             
     def unicode_printer(self, *args, sep=' ', end='\n'):
         *most, last = args
