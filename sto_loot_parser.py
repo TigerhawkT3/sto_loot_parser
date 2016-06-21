@@ -72,7 +72,7 @@ def get_logs(location, cp=False):
         (str): each line of each log being parsed
     '''
     if cp:
-        with open(location) as f:
+        with open(location, encoding='utf-8-sig') as f:
             yield from f
     else:
         dirname = os.path.dirname(location)
@@ -83,7 +83,7 @@ def get_logs(location, cp=False):
         length = len(files)
         for idx,filename in enumerate(files, start=1):
             print('Processing {} out of {}...'.format(idx, length), end='\r', file=sys.stderr)
-            with open(os.path.join(dirname, filename)) as f:
+            with open(os.path.join(dirname, filename), encoding='utf-8-sig') as f:
                 yield from f
         print('\nDone.', file=sys.stderr)
     
