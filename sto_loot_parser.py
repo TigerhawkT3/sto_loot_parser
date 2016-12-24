@@ -43,7 +43,7 @@ def container_from_logs(location, cp=False):
 
     expression = (r"(?:You (didn't win any|spent|discarded|lost|refined"
           r"|received|sold|placed a bet of|won)|Items? acquired:|(.*) "
-          r'(?:has acquired an?|hat einen))'
+          r'(?:has acquired an?|hat eine?n?))'
           r' ([0-9,]+ )?(.*)'
        )
    
